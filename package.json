@@ -1,0 +1,51 @@
+{
+  "name": "go-ssa-explorer",
+  "displayName": "Go SSA Explorer",
+  "description": "Visualize Go’s genssa compiler pass, including all inlining decisions",
+  "icon": "assets/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pijng/go-ssa-explorer.git"
+  },
+  "version": "0.0.1",
+  "publisher": "Pijng",
+  "engines": {
+    "vscode": "^1.102.2"
+  },
+  "categories": [
+    "Other"
+  ],
+  "type": "module",
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "goSsaExplorer.showSSA",
+        "title": "Go SSA Explorer: Show SSA"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "@types/vscode": "^1.102.2",
+    "@typescript-eslint/eslint-plugin": "^8.42.0",
+    "@typescript-eslint/parser": "^8.42.0",
+    "@vscode/test-cli": "^0.0.11",
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.34.0",
+    "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "lit-html": "^3.3.1"
+  }
+}
