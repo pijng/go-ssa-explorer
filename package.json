@@ -7,7 +7,7 @@
     "type": "git",
     "url": "https://github.com/pijng/go-ssa-explorer.git"
   },
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "Pijng",
   "engines": {
     "vscode": "^1.102.2"
@@ -16,13 +16,27 @@
     "Other"
   ],
   "type": "module",
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./out/extension.js",
   "contributes": {
+    "languages": [
+      {
+        "id": "go",
+        "extensions": [
+          ".go"
+        ]
+      }
+    ],
     "commands": [
       {
         "command": "goSsaExplorer.showSSA",
         "title": "Go SSA Explorer: Show SSA"
+      },
+      {
+        "command": "goSsaExplorer.toggleInliningDecisions",
+        "title": "Go SSA Explorer: Toggle inlining decisions"
       }
     ]
   },

@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import { html, TemplateResult } from 'lit-html';
+import path from 'path';
 
 
 export function activate(context: vscode.ExtensionContext) {
-	let disposable = vscode.commands.registerCommand("goSsaExplorer.showSSA", async () => {
+	const showSSA = vscode.commands.registerCommand("goSsaExplorer.showSSA", async () => {
 		const output = vscode.window.createOutputChannel("Go SSA Explorer");
 		output.appendLine("Extension activated");
 
@@ -163,7 +164,126 @@ export function activate(context: vscode.ExtensionContext) {
 		);
 	});
 
-	context.subscriptions.push(disposable);
+	const codeLensProvider = vscode.languages.registerCodeLensProvider(
+		{ language: "go" },
+		new InliningLensProvider()
+	);
+
+	let inliningHintsMap: InlDecisionsMap = {};
+	const inliningDecisionsProvider = new InliningDecisionsInlayHintsProvider(inliningHintsMap);
+	const inliningDecisionsDisposable = vscode.languages.registerInlayHintsProvider({ language: 'go' }, inliningDecisionsProvider);
+	let showHints = false;
+
+	const toggleInliningDecisions = vscode.commands.registerCommand("goSsaExplorer.toggleInliningDecisions", (absFileName: string) => {
+		const cwd = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+		if (!cwd) { return; }
+
+		const output = vscode.window.createOutputChannel("Go SSA Explorer");
+		const fileName = '/' + path.relative(cwd, absFileName);
+
+		if (showHints) {
+			Object.keys(inliningDecisionsProvider.hintsMap).forEach(k => {
+				delete inliningDecisionsProvider.hintsMap[Number(k)];
+			});
+		} else {
+			const newHints = getInlineDecisions({ output, cwd, fileName });
+			Object.entries(newHints).forEach(([k, v]) => {
+				inliningDecisionsProvider.hintsMap[Number(k) - 1] = v;
+			});
+		}
+
+		showHints = !showHints;
+
+		inliningDecisionsProvider.refreshInlayHints();
+	});
+
+	context.subscriptions.push(
+		vscode.workspace.onDidSaveTextDocument((doc: vscode.TextDocument) => {
+			if (!showHints) { return; }
+
+			const cwd = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+			if (!cwd) { return; }
+
+			const output = vscode.window.createOutputChannel("Go SSA Explorer");
+			const fileName = doc.fileName.split(cwd)[1];
+
+			Object.keys(inliningDecisionsProvider.hintsMap).forEach(k => {
+				delete inliningDecisionsProvider.hintsMap[Number(k)];
+			});
+
+			const newHints = getInlineDecisions({ output, cwd, fileName });
+			Object.entries(newHints).forEach(([k, v]) => {
+				inliningDecisionsProvider.hintsMap[Number(k) - 1] = v;
+			});
+
+			inliningDecisionsProvider.refreshInlayHints();
+		})
+	);
+
+	context.subscriptions.push(codeLensProvider, showSSA, toggleInliningDecisions, inliningDecisionsDisposable);
+}
+
+class InliningLensProvider implements vscode.CodeLensProvider {
+	onDidChangeCodeLenses?: vscode.Event<void> | undefined;
+
+	provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
+		const lenses: vscode.CodeLens[] = [];
+
+		const firstLine = document.lineAt(0);
+		const range = new vscode.Range(firstLine.range.start, firstLine.range.start);
+
+		lenses.push(
+			new vscode.CodeLens(range, {
+				title: "Toggle Inlining Decisions",
+				command: "goSsaExplorer.toggleInliningDecisions",
+				arguments: [document.fileName],
+			})
+		);
+
+		return lenses;
+	}
+}
+
+class InliningDecisionsInlayHintsProvider implements vscode.InlayHintsProvider {
+	private _onDidChangeInlayHints = new vscode.EventEmitter<void>();
+	readonly onDidChangeInlayHints = this._onDidChangeInlayHints.event;
+
+	constructor(public hintsMap: InlDecisionsMap) { }
+
+	provideInlayHints(
+		document: vscode.TextDocument,
+		range: vscode.Range,
+		token: vscode.CancellationToken
+	): vscode.ProviderResult<vscode.InlayHint[]> {
+		const hints: vscode.InlayHint[] = [];
+
+		for (const [lineStr, decision] of Object.entries(this.hintsMap)) {
+			const line = Number(lineStr);
+			if (line >= range.start.line && line <= range.end.line) {
+				const lineLength = document.lineAt(line).text.length;
+				const position = new vscode.Position(line, lineLength);
+				const decisionText = ' ' + inlineDecisionText(decision);
+				const hint = new vscode.InlayHint(position, decisionText, vscode.InlayHintKind.Type);
+				hints.push(hint);
+			}
+		}
+
+		return hints;
+	}
+
+	refreshInlayHints() {
+		this._onDidChangeInlayHints.fire();
+	}
+}
+
+function inlineDecisionText(decision: InlDecision) {
+	if (decision.canInline) {
+		return ['can inline', decision.name, 'with cost', decision.cost].join(' ');
+	}
+	if (decision.isInlined) {
+		return ['inlining call to', decision.name].join(' ');
+	}
+	return ['cannot inline', decision.name + ':', 'cost', decision.cost, 'exceeds budget', decision.maxBudget].join(' ');
 }
 
 function getSSA({ output, cwd, funcName }: { output: vscode.OutputChannel; cwd: string; funcName: string }): { ssa: string, ssaFileName: string } {
