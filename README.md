@@ -4,9 +4,15 @@
 
 ---
 
-## Demo
+## Demos
 
-![Demo](assets/go-ssa-demo.gif)
+**SSA form demo**
+
+![SSA form demo](assets/go-ssa-demo.gif)
+
+**Inlay hints with inlining decisions demo**
+
+![Inlining inlay hints demo](assets/go-inlining-hints-demo.gif)
 
 ---
 
@@ -17,9 +23,14 @@
 
 - **Supports inlining analysis**
   See which functions are inlined by the compiler and how Go transforms your code internally.
+  This feature is supported both in the SSA form and directly in the **source code** using inlay hints.
+  Inlay hints can be toggled either via the “Toggle inlining decisions” command shown at the very top of the file, or with the keyboard shortcut:
+
+  - Windows/Linux: `Ctrl+Alt+I`
+  - macOS: `Cmd+Alt+I`
 
 - **Hot-reload on file save**
-  Automatically refresh the SSA visualization when you save your Go files.
+  Automatically refresh the SSA visualization and inlining decisions when you save your Go files.
 
 ---
 

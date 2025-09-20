@@ -11,3 +11,9 @@ All notable changes to the "go-ssa-explorer" extension will be documented in thi
 ### Added
 
 - Inlay hints for inlining decisions
+
+## [0.1.0] - 2025-09-20
+
+### Added
+
+- Keybindings for toggling inlining inlay hints

@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import { html, TemplateResult } from 'lit-html';
 import path from 'path';
+import { getInlineDecisions, InlDecisionsMap } from './inlining-decisions.js';
+import { InliningDecisionsInlayHintsProvider, InliningLensProvider } from './inlay-hints.js';
 
 
 export function activate(context: vscode.ExtensionContext) {
@@ -22,7 +24,7 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 
 		const { ssa, ssaFileName } = getSSA({ output, cwd, funcName });
-		const inlineDecisions = getInlineDecisions({ output, cwd, fileName: ssaFileName });
+		const inlineDecisions = getInlineDecisions({ cwd, fileName: ssaFileName });
 
 		const panel = vscode.window.createWebviewPanel(
 			'ssaExplorer',
@@ -146,7 +148,7 @@ export function activate(context: vscode.ExtensionContext) {
 				const { ssa } = getSSA({ output, cwd, funcName });
 				if (!ssa) { return; }
 
-				const inlineDecisions = getInlineDecisions({ output, cwd, fileName: ssaFileName });
+				const inlineDecisions = getInlineDecisions({ cwd, fileName: ssaFileName });
 
 				const editor = vscode.window.activeTextEditor;
 				if (!editor) { return; }
@@ -169,8 +171,7 @@ export function activate(context: vscode.ExtensionContext) {
 		new InliningLensProvider()
 	);
 
-	let inliningHintsMap: InlDecisionsMap = {};
-	const inliningDecisionsProvider = new InliningDecisionsInlayHintsProvider(inliningHintsMap);
+	const inliningDecisionsProvider = new InliningDecisionsInlayHintsProvider({});
 	const inliningDecisionsDisposable = vscode.languages.registerInlayHintsProvider({ language: 'go' }, inliningDecisionsProvider);
 	let showHints = false;
 
@@ -178,23 +179,28 @@ export function activate(context: vscode.ExtensionContext) {
 		const cwd = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
 		if (!cwd) { return; }
 
-		const output = vscode.window.createOutputChannel("Go SSA Explorer");
-		const fileName = '/' + path.relative(cwd, absFileName);
+		let fileName: string;
+		if (!absFileName) {
+			const editor = vscode.window.activeTextEditor;
+			if (!editor) { return; }
 
-		if (showHints) {
-			Object.keys(inliningDecisionsProvider.hintsMap).forEach(k => {
-				delete inliningDecisionsProvider.hintsMap[Number(k)];
-			});
+			fileName = editor.document.fileName;
 		} else {
-			const newHints = getInlineDecisions({ output, cwd, fileName });
-			Object.entries(newHints).forEach(([k, v]) => {
-				inliningDecisionsProvider.hintsMap[Number(k) - 1] = v;
-			});
+			fileName = absFileName;
+		}
+
+		fileName = '/' + path.relative(cwd, fileName);
+
+		let newHints: InlDecisionsMap;
+		if (showHints) {
+			newHints = {};
+		} else {
+			newHints = getInlineDecisions({ cwd, fileName });
 		}
 
 		showHints = !showHints;
 
-		inliningDecisionsProvider.refreshInlayHints();
+		inliningDecisionsProvider.refreshInlayHints(newHints);
 	});
 
 	context.subscriptions.push(
@@ -204,86 +210,14 @@ export function activate(context: vscode.ExtensionContext) {
 			const cwd = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
 			if (!cwd) { return; }
 
-			const output = vscode.window.createOutputChannel("Go SSA Explorer");
 			const fileName = doc.fileName.split(cwd)[1];
+			const newHints = getInlineDecisions({ cwd, fileName });
 
-			Object.keys(inliningDecisionsProvider.hintsMap).forEach(k => {
-				delete inliningDecisionsProvider.hintsMap[Number(k)];
-			});
-
-			const newHints = getInlineDecisions({ output, cwd, fileName });
-			Object.entries(newHints).forEach(([k, v]) => {
-				inliningDecisionsProvider.hintsMap[Number(k) - 1] = v;
-			});
-
-			inliningDecisionsProvider.refreshInlayHints();
+			inliningDecisionsProvider.refreshInlayHints(newHints);
 		})
 	);
 
 	context.subscriptions.push(codeLensProvider, showSSA, toggleInliningDecisions, inliningDecisionsDisposable);
-}
-
-class InliningLensProvider implements vscode.CodeLensProvider {
-	onDidChangeCodeLenses?: vscode.Event<void> | undefined;
-
-	provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
-		const lenses: vscode.CodeLens[] = [];
-
-		const firstLine = document.lineAt(0);
-		const range = new vscode.Range(firstLine.range.start, firstLine.range.start);
-
-		lenses.push(
-			new vscode.CodeLens(range, {
-				title: "Toggle Inlining Decisions",
-				command: "goSsaExplorer.toggleInliningDecisions",
-				arguments: [document.fileName],
-			})
-		);
-
-		return lenses;
-	}
-}
-
-class InliningDecisionsInlayHintsProvider implements vscode.InlayHintsProvider {
-	private _onDidChangeInlayHints = new vscode.EventEmitter<void>();
-	readonly onDidChangeInlayHints = this._onDidChangeInlayHints.event;
-
-	constructor(public hintsMap: InlDecisionsMap) { }
-
-	provideInlayHints(
-		document: vscode.TextDocument,
-		range: vscode.Range,
-		token: vscode.CancellationToken
-	): vscode.ProviderResult<vscode.InlayHint[]> {
-		const hints: vscode.InlayHint[] = [];
-
-		for (const [lineStr, decision] of Object.entries(this.hintsMap)) {
-			const line = Number(lineStr);
-			if (line >= range.start.line && line <= range.end.line) {
-				const lineLength = document.lineAt(line).text.length;
-				const position = new vscode.Position(line, lineLength);
-				const decisionText = ' ' + inlineDecisionText(decision);
-				const hint = new vscode.InlayHint(position, decisionText, vscode.InlayHintKind.Type);
-				hints.push(hint);
-			}
-		}
-
-		return hints;
-	}
-
-	refreshInlayHints() {
-		this._onDidChangeInlayHints.fire();
-	}
-}
-
-function inlineDecisionText(decision: InlDecision) {
-	if (decision.canInline) {
-		return ['can inline', decision.name, 'with cost', decision.cost].join(' ');
-	}
-	if (decision.isInlined) {
-		return ['inlining call to', decision.name].join(' ');
-	}
-	return ['cannot inline', decision.name + ':', 'cost', decision.cost, 'exceeds budget', decision.maxBudget].join(' ');
 }
 
 function getSSA({ output, cwd, funcName }: { output: vscode.OutputChannel; cwd: string; funcName: string }): { ssa: string, ssaFileName: string } {
@@ -322,64 +256,6 @@ function getSSA({ output, cwd, funcName }: { output: vscode.OutputChannel; cwd: 
 	return { ssa: strippedSsa, ssaFileName: ssaFileName };
 }
 
-type InlDecision = {
-	canInline: boolean;
-	isInlined: boolean;
-	maxBudget: 80; // Max inlining budget value as of go1.25
-	name: string;
-	as?: string;
-	cost?: string;
-}
-
-type InlDecisionsMap = Record<number, InlDecision>
-
-function getInlineDecisions({ output, cwd, fileName }: { output: vscode.OutputChannel; cwd: string; fileName: string }): InlDecisionsMap {
-	const result = cp.spawnSync(
-		"go",
-		["build", "-gcflags=-m=2", cwd + fileName],
-		{
-			cwd,
-			env: { ...process.env },
-			encoding: "utf-8"
-		}
-	);
-
-	const stderr = result.stderr || "";
-	if (!stderr) { return []; }
-
-	output.appendLine(`Output of inlining decisions for \`${fileName}\`:`);
-	output.append(stderr);
-
-	const decisionsMap: InlDecisionsMap = {};
-	const reSuccess = /^(?<file>.+?):(?<codeLine>\d+):(?<col>\d+):\s+can inline (?<name>\S+) with cost (?<cost>\d+) as: (?<text>.+)$/;
-	const reFailure = /^(?<file>.+?):(?<codeLine>\d+):(?<col>\d+): cannot inline (?<name>\S+):.*?cost (?<cost>\d+)/;
-	const reCall = /^(?<file>.+?):(?<codeLine>\d+):(?<col>\d+): inlining call to (?<name>\S+)$/;
-
-	const lines = stderr.split('\n');
-
-	for (const line of lines) {
-		const matchSuccess = line.match(reSuccess);
-		const matchFailure = line.match(reFailure);
-		const matchCall = line.match(reCall);
-
-		if (matchSuccess?.groups) {
-			const { file, codeLine, name, cost, text } = matchSuccess.groups;
-			decisionsMap[Number(codeLine)] = { canInline: true, name: name, cost: cost, as: text, isInlined: false, maxBudget: 80 };
-		}
-
-		if (matchFailure?.groups) {
-			const { file, codeLine, name, cost } = matchFailure.groups;
-			decisionsMap[Number(codeLine)] = { canInline: false, name: name, cost: cost, isInlined: false, maxBudget: 80 };
-		}
-
-		if (matchCall?.groups) {
-			const { codeLine, name } = matchCall.groups;
-			decisionsMap[Number(codeLine)] = { canInline: false, name: name, isInlined: true, maxBudget: 80 };
-		}
-	}
-
-	return decisionsMap;
-}
 
 function splitFuncName(funcName: string): string {
 	// regex matches Go method: (Type).Method or (*Type).Method

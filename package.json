@@ -7,7 +7,7 @@
     "type": "git",
     "url": "https://github.com/pijng/go-ssa-explorer.git"
   },
-  "version": "0.0.2",
+  "version": "0.1.0",
   "publisher": "Pijng",
   "engines": {
     "vscode": "^1.102.2"
@@ -27,6 +27,14 @@
         "extensions": [
           ".go"
         ]
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "goSsaExplorer.toggleInliningDecisions",
+        "key": "ctrl+alt+i",
+        "mac": "cmd+alt+i",
+        "when": "editorLangId == go"
       }
     ],
     "commands": [
